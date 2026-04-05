@@ -4,15 +4,8 @@ import numpy as np
 
 st.set_page_config(page_title="Churn Prediction Dashboard", page_icon="📊", layout="wide")
 
-st.markdown("""
-<style>
-    .section-header { font-size:1.3rem; font-weight:700; margin-bottom:0.5rem;
-                      padding-bottom:0.3rem; border-bottom:2px solid #e2e8f0; }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("📊 Churn Prediction & Intervention Dashboard")
-st.markdown("Upload your **submission CSV** (`user_id` + probability columns) to explore predictions and interventions.")
+st.markdown("Upload your **submission CSV** (`user_id` + probability columns) to explore predictions, interventions, and business insights.")
 
 # ─────────────────────────────────────────────
 # CONSTANTS
@@ -26,9 +19,6 @@ STRATEGIES = {
     'not_churned': "✅ HEALTHY: User is retained. Consider for upsell or referral campaign.",
 }
 
-# ─────────────────────────────────────────────
-# REAL MODEL METRICS — from notebook Cell 24 output
-# ─────────────────────────────────────────────
 F1_DATA = {
     'Class':     ['invol_churn', 'not_churned', 'vol_churn', 'Macro Avg'],
     'Precision': [0.60,           0.49,          0.68,         0.59],
@@ -38,9 +28,6 @@ F1_DATA = {
     'Color':     ['#EF4444',      '#10B981',     '#F59E0B',    '#6366F1'],
 }
 
-# ─────────────────────────────────────────────
-# REAL FEATURE IMPORTANCES — from notebook Cell 25 output
-# ─────────────────────────────────────────────
 FEATURES = pd.DataFrame({
     'Feature':    ['total_generations','bank_name_churn_rate','country_code_churn_rate',
                    'total_credit_spent','avg_credit_per_gen','engagement_decay',
@@ -50,23 +37,20 @@ FEATURES = pd.DataFrame({
                    'Voluntary','Voluntary','Both','Both','Involuntary'],
 })
 
-# ─────────────────────────────────────────────
-# STATIC BUSINESS DATA — from PPTX
-# ─────────────────────────────────────────────
 PAYMENT_METHODS = pd.DataFrame({
     'Method':             ['Link / Digital Wallet','Debit Card','Credit Card','3DS Card'],
     'Invol Churn Rate %': [7, 28, 42, 54],
 })
 
 INTERVENTION_TABLE = pd.DataFrame([
-    {'Type':'Involuntary','Root Cause':'card_declined at renewal',     'Intervention':'Smart retry: 3 attempts/7 days, off-peak',       'Users':'18,793','Priority':'🔴 CRITICAL'},
-    {'Type':'Involuntary','Root Cause':'High-risk bank detected',       'Intervention':'Pre-renewal verification email 7 days before',   'Users':'~12,000','Priority':'🟠 HIGH'},
-    {'Type':'Involuntary','Root Cause':'No digital wallet on file',     'Intervention':'Promote Link/PayPal at onboarding & checkout',   'Users':'All new','Priority':'🟡 MEDIUM'},
-    {'Type':'Voluntary',  'Root Cause':'Beginner never onboards',       'Intervention':'Forced guided first session + templates',        'Users':'7,500+', 'Priority':'🔴 CRITICAL'},
-    {'Type':'Voluntary',  'Root Cause':'Frustration: Hard to prompt',   'Intervention':'In-app success chat trigger within 24hrs',       'Users':'~4,000', 'Priority':'🟠 HIGH'},
-    {'Type':'Voluntary',  'Root Cause':'Power user hits credit ceiling', 'Intervention':'Usage dashboard + upgrade prompt at 80% limit', 'Users':'~3,500', 'Priority':'🟠 HIGH'},
-    {'Type':'Voluntary',  'Root Cause':'Inactive 14+ days',             'Intervention':'Win-back: 30% discount + feature showcase',     'Users':'15,561', 'Priority':'🟡 MEDIUM'},
-    {'Type':'Both',       'Root Cause':'Declining usage + bad card',    'Intervention':'Combined payment fix + re-engagement flow',      'Users':'~5,000', 'Priority':'🔴 CRITICAL'},
+    {'Type':'Involuntary','Root Cause':'card_declined at renewal',      'Intervention':'Smart retry: 3 attempts/7 days, off-peak',       'Users':'18,793','Priority':'🔴 CRITICAL'},
+    {'Type':'Involuntary','Root Cause':'High-risk bank detected',        'Intervention':'Pre-renewal verification email 7 days before',   'Users':'~12,000','Priority':'🟠 HIGH'},
+    {'Type':'Involuntary','Root Cause':'No digital wallet on file',      'Intervention':'Promote Link/PayPal at onboarding & checkout',   'Users':'All new','Priority':'🟡 MEDIUM'},
+    {'Type':'Voluntary',  'Root Cause':'Beginner never onboards',        'Intervention':'Forced guided first session + templates',        'Users':'7,500+', 'Priority':'🔴 CRITICAL'},
+    {'Type':'Voluntary',  'Root Cause':'Frustration: Hard to prompt',    'Intervention':'In-app success chat trigger within 24hrs',       'Users':'~4,000', 'Priority':'🟠 HIGH'},
+    {'Type':'Voluntary',  'Root Cause':'Power user hits credit ceiling',  'Intervention':'Usage dashboard + upgrade prompt at 80% limit', 'Users':'~3,500', 'Priority':'🟠 HIGH'},
+    {'Type':'Voluntary',  'Root Cause':'Inactive 14+ days',              'Intervention':'Win-back: 30% discount + feature showcase',     'Users':'15,561', 'Priority':'🟡 MEDIUM'},
+    {'Type':'Both',       'Root Cause':'Declining usage + bad card',     'Intervention':'Combined payment fix + re-engagement flow',      'Users':'~5,000', 'Priority':'🔴 CRITICAL'},
 ])
 
 PERSONAS = [
@@ -85,7 +69,7 @@ PERSONAS = [
 ]
 
 # ─────────────────────────────────────────────
-# FILE UPLOAD
+# FILE UPLOAD — everything gates on this
 # ─────────────────────────────────────────────
 uploaded = st.file_uploader(
     "📂 Upload your submission CSV",
@@ -93,47 +77,51 @@ uploaded = st.file_uploader(
     help="Expects: user_id, invol_churn_prob, not_churned_prob, vol_churn_prob"
 )
 
-user_data_loaded = False
-df = None
-
-if uploaded is not None:
-    df = pd.read_csv(uploaded)
-    cols = list(df.columns)
-
-    has_probs  = all(c in cols for c in ['invol_churn_prob','not_churned_prob','vol_churn_prob'])
-    has_status = 'churn_status' in cols
-
-    if not has_probs and not has_status:
-        st.error("❌ CSV must have probability columns (invol_churn_prob, not_churned_prob, vol_churn_prob) or a churn_status column.")
-    else:
-        if has_probs:
-            prob_cols = ['invol_churn_prob','not_churned_prob','vol_churn_prob']
-            label_map = {0:'invol_churn', 1:'not_churned', 2:'vol_churn'}
-            df['churn_status'] = df[prob_cols].values.argmax(axis=1)
-            df['churn_status'] = df['churn_status'].map(label_map)
-            df['confidence']   = df[prob_cols].max(axis=1)
-        else:
-            df['confidence'] = None
-
-        VALID = {'invol_churn','vol_churn','not_churned'}
-        unexpected = set(df['churn_status'].dropna().unique()) - VALID
-        if unexpected:
-            st.error(f"❌ Unexpected values in churn_status: `{unexpected}`")
-        else:
-            df['recommended_action'] = df['churn_status'].map(STRATEGIES)
-            df['status_label']       = df['churn_status'].map(STATUS_LABEL)
-            user_data_loaded = True
-else:
-    st.info("👆 Upload your submission CSV to unlock User Predictions and Export tabs. Executive Summary and Business Insights are always visible.")
+if uploaded is None:
+    st.info("👆 Upload your submission CSV to get started.")
+    st.stop()
 
 # ─────────────────────────────────────────────
-# TABS
+# LOAD & VALIDATE
 # ─────────────────────────────────────────────
-if user_data_loaded:
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Executive Summary", "🧠 Business Insights", "🔮 User Predictions", "⬇️ Export"])
+df = pd.read_csv(uploaded)
+cols = list(df.columns)
+
+has_probs  = all(c in cols for c in ['invol_churn_prob','not_churned_prob','vol_churn_prob'])
+has_status = 'churn_status' in cols
+
+if not has_probs and not has_status:
+    st.error("❌ CSV must have probability columns (invol_churn_prob, not_churned_prob, vol_churn_prob) or a churn_status column.")
+    st.stop()
+
+if has_probs:
+    prob_cols = ['invol_churn_prob','not_churned_prob','vol_churn_prob']
+    label_map = {0:'invol_churn', 1:'not_churned', 2:'vol_churn'}
+    df['churn_status'] = df[prob_cols].values.argmax(axis=1)
+    df['churn_status'] = df['churn_status'].map(label_map)
+    df['confidence']   = df[prob_cols].max(axis=1)
 else:
-    tab1, tab2 = st.tabs(["📈 Executive Summary", "🧠 Business Insights"])
-    tab3 = tab4 = None
+    df['confidence'] = None
+
+VALID = {'invol_churn','vol_churn','not_churned'}
+unexpected = set(df['churn_status'].dropna().unique()) - VALID
+if unexpected:
+    st.error(f"❌ Unexpected values in churn_status: `{unexpected}`")
+    st.stop()
+
+df['recommended_action'] = df['churn_status'].map(STRATEGIES)
+df['status_label']       = df['churn_status'].map(STATUS_LABEL)
+
+counts   = df['churn_status'].value_counts()
+total    = len(df)
+invol    = counts.get('invol_churn', 0)
+vol      = counts.get('vol_churn', 0)
+retained = counts.get('not_churned', 0)
+
+# ─────────────────────────────────────────────
+# TABS — only rendered after successful upload
+# ─────────────────────────────────────────────
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Executive Summary", "🧠 Business Insights", "🔮 User Predictions", "⬇️ Export"])
 
 
 # ══════════════════════════════════════════════
@@ -141,16 +129,6 @@ else:
 # ══════════════════════════════════════════════
 with tab1:
     st.header("Executive Summary")
-
-    if user_data_loaded:
-        counts   = df['churn_status'].value_counts()
-        total    = len(df)
-        invol    = counts.get('invol_churn', 0)
-        vol      = counts.get('vol_churn', 0)
-        retained = counts.get('not_churned', 0)
-    else:
-        total, invol, vol, retained = 78567, 26573, 28569, 23425
-        counts = pd.Series({'invol_churn':invol,'vol_churn':vol,'not_churned':retained})
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👥 Total Users",       f"{total:,}")
@@ -160,8 +138,7 @@ with tab1:
 
     st.markdown("---")
 
-    # F1 Score cards — real values from notebook
-    st.markdown("### 🎯 Model Performance — LightGBM (real scores from your notebook)")
+    st.markdown("### 🎯 Model Performance — LightGBM F1 Scores")
     f1_cols = st.columns(4)
     for i, (cls, f1, color) in enumerate(zip(F1_DATA['Class'], F1_DATA['F1-Score'], F1_DATA['Color'])):
         prec = F1_DATA['Precision'][i]
@@ -174,7 +151,6 @@ with tab1:
                 <div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{cls}</div>
                 <div style="font-size:0.75rem;color:#718096;">Precision {prec:.2f} · Recall {rec:.2f}</div>
             </div>""", unsafe_allow_html=True)
-
     st.caption("ℹ️ Macro F1 = 0.58 on a hard 3-class problem with ~equal class sizes (15,714 val samples). Model flags 34,354 high-risk users.")
 
     st.markdown("---")
@@ -200,7 +176,6 @@ with tab2:
     st.header("🧠 Business Insights")
     st.caption("Analysis from HackNU 2026 — RetentionArchitect — 78,567 users")
 
-    # Payment method risk
     st.markdown("### 💳 Involuntary Churn Rate by Payment Method")
     st.markdown("Digital wallets show **~7% involuntary churn** vs 33–54% for traditional cards.")
     pm1, pm2 = st.columns([2,1])
@@ -216,8 +191,7 @@ with tab2:
 
     st.markdown("---")
 
-    # Real feature importances from notebook
-    st.markdown("### 🔬 Top 10 Predictive Features (real LightGBM importances from your notebook)")
+    st.markdown("### 🔬 Top 10 Predictive Features (real LightGBM importances)")
     fi1, fi2 = st.columns([2,1])
     with fi1:
         st.bar_chart(FEATURES[['Feature','Importance']].set_index('Feature'), color='#6366F1')
@@ -233,7 +207,6 @@ with tab2:
 
     st.markdown("---")
 
-    # Full classification report with progress bars
     st.markdown("### 📋 Full Classification Report")
     report_df = pd.DataFrame({
         'Class':     F1_DATA['Class'],
@@ -253,7 +226,6 @@ with tab2:
 
     st.markdown("---")
 
-    # 4 Churn Personas
     st.markdown("### 👤 The 4 Churn Personas")
     p_cols = st.columns(2)
     for i, p in enumerate(PERSONAS):
@@ -273,20 +245,18 @@ with tab2:
 
     st.markdown("---")
 
-    # Intervention playbook
     st.markdown("### 🗺️ Master Intervention Playbook")
     st.dataframe(INTERVENTION_TABLE, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
-    # Monday morning top 5
     st.markdown("### 🚀 Top 5 Actions — Ranked by Expected Retention Impact")
     actions = [
-        ("🔴","Deploy 7-day payment grace period with retry logic",            "Involuntary Fix","#EF4444","Recovers 30–40% of involuntary churners. Users want to stay — stop ejecting them over a timing failure."),
-        ("🔴","Send pre-renewal payment verification to high-risk banks",        "Involuntary Fix","#EF4444","Prevents failures before they occur. Estimated 15–20% reduction in card_declined events."),
-        ("🟡","Redesign beginner first session as a guided template-driven flow","Voluntary Fix", "#F59E0B","Session 1 completion is the #1 predictor of 30-day retention. Fixes the largest single churn cohort."),
-        ("🟡","Build in-app usage dashboard shown 7 days before renewal",        "Voluntary Fix", "#F59E0B","Counteracts 'High cost' frustration by making value tangible exactly when the renewal decision is made."),
-        ("🟢","Trigger success team outreach when frustration field is set",     "Both",          "#10B981","Turns a passive churn signal into a direct human intervention. Estimated 25–35% save rate."),
+        ("🔴","Deploy 7-day payment grace period with retry logic",             "Involuntary Fix","#EF4444","Recovers 30–40% of involuntary churners. Users want to stay — stop ejecting them over a timing failure."),
+        ("🔴","Send pre-renewal payment verification to high-risk banks",         "Involuntary Fix","#EF4444","Prevents failures before they occur. Estimated 15–20% reduction in card_declined events."),
+        ("🟡","Redesign beginner first session as a guided template-driven flow", "Voluntary Fix", "#F59E0B","Session 1 completion is the #1 predictor of 30-day retention. Fixes the largest single churn cohort."),
+        ("🟡","Build in-app usage dashboard shown 7 days before renewal",         "Voluntary Fix", "#F59E0B","Counteracts 'High cost' frustration by making value tangible exactly when the renewal decision is made."),
+        ("🟢","Trigger success team outreach when frustration field is set",      "Both",          "#10B981","Turns a passive churn signal into a direct human intervention. Estimated 25–35% save rate."),
     ]
     for idx, (emoji, title, atype, color, desc) in enumerate(actions, 1):
         st.markdown(f"""
@@ -305,73 +275,71 @@ with tab2:
 # ══════════════════════════════════════════════
 # TAB 3 — USER PREDICTIONS
 # ══════════════════════════════════════════════
-if tab3 and user_data_loaded:
-    with tab3:
-        st.header("User-Level Predictions & Interventions")
+with tab3:
+    st.header("User-Level Predictions & Interventions")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            status_filter = st.multiselect(
-                "Filter by predicted status",
-                options=['invol_churn','vol_churn','not_churned'],
-                default=['invol_churn','vol_churn','not_churned'],
-                format_func=lambda x: f"{STATUS_EMOJI[x]} {STATUS_LABEL[x]}"
-            )
-        with col2:
-            search = st.text_input("🔍 Search by user_id", placeholder="Paste a user_id...")
+    col1, col2 = st.columns(2)
+    with col1:
+        status_filter = st.multiselect(
+            "Filter by predicted status",
+            options=['invol_churn','vol_churn','not_churned'],
+            default=['invol_churn','vol_churn','not_churned'],
+            format_func=lambda x: f"{STATUS_EMOJI[x]} {STATUS_LABEL[x]}"
+        )
+    with col2:
+        search = st.text_input("🔍 Search by user_id", placeholder="Paste a user_id...")
 
-        filtered = df[df['churn_status'].isin(status_filter)].copy()
-        if search.strip():
-            filtered = filtered[filtered['user_id'].astype(str).str.contains(search.strip(), case=False, na=False)]
+    filtered = df[df['churn_status'].isin(status_filter)].copy()
+    if search.strip():
+        filtered = filtered[filtered['user_id'].astype(str).str.contains(search.strip(), case=False, na=False)]
 
-        st.markdown(f"Showing **{len(filtered):,}** users")
+    st.markdown(f"Showing **{len(filtered):,}** users")
 
-        display_cols  = ['user_id','status_label','recommended_action']
-        display_names = ['User ID','Predicted Status','Recommended Action']
-        if 'invol_churn_prob' in df.columns:
-            display_cols  += ['invol_churn_prob','vol_churn_prob','not_churned_prob','confidence']
-            display_names += ['Invol Prob','Vol Prob','Retained Prob','Confidence']
+    display_cols  = ['user_id','status_label','recommended_action']
+    display_names = ['User ID','Predicted Status','Recommended Action']
+    if 'invol_churn_prob' in df.columns:
+        display_cols  += ['invol_churn_prob','vol_churn_prob','not_churned_prob','confidence']
+        display_names += ['Invol Prob','Vol Prob','Retained Prob','Confidence']
 
-        disp = filtered[display_cols].copy()
-        disp.columns = display_names
+    disp = filtered[display_cols].copy()
+    disp.columns = display_names
 
-        col_config = {}
-        for col in ['Invol Prob','Vol Prob','Retained Prob','Confidence']:
-            if col in disp.columns:
-                col_config[col] = st.column_config.ProgressColumn(col, min_value=0, max_value=1, format="%.3f")
+    col_config = {}
+    for col in ['Invol Prob','Vol Prob','Retained Prob','Confidence']:
+        if col in disp.columns:
+            col_config[col] = st.column_config.ProgressColumn(col, min_value=0, max_value=1, format="%.3f")
 
-        st.dataframe(disp.reset_index(drop=True), use_container_width=True, hide_index=True, column_config=col_config)
+    st.dataframe(disp.reset_index(drop=True), use_container_width=True, hide_index=True, column_config=col_config)
 
 
 # ══════════════════════════════════════════════
 # TAB 4 — EXPORT
 # ══════════════════════════════════════════════
-if tab4 and user_data_loaded:
-    with tab4:
-        st.header("Export Results")
+with tab4:
+    st.header("Export Results")
 
-        export_cols = ['user_id','churn_status','status_label','recommended_action']
-        if 'invol_churn_prob' in df.columns:
-            export_cols += ['invol_churn_prob','not_churned_prob','vol_churn_prob','confidence']
+    export_cols = ['user_id','churn_status','status_label','recommended_action']
+    if 'invol_churn_prob' in df.columns:
+        export_cols += ['invol_churn_prob','not_churned_prob','vol_churn_prob','confidence']
 
-        export_df = df[export_cols].copy()
-        st.dataframe(export_df.head(20), use_container_width=True, hide_index=True)
-        st.caption(f"Preview of first 20 rows — full export has {len(export_df):,} users.")
+    export_df = df[export_cols].copy()
+    st.dataframe(export_df.head(20), use_container_width=True, hide_index=True)
+    st.caption(f"Preview of first 20 rows — full export has {len(export_df):,} users.")
 
-        st.download_button(
-            label="⬇️ Download Full Results with Interventions (CSV)",
-            data=export_df.to_csv(index=False),
-            file_name="churn_predictions_with_interventions.csv",
-            mime="text/csv",
-        )
+    st.download_button(
+        label="⬇️ Download Full Results with Interventions (CSV)",
+        data=export_df.to_csv(index=False),
+        file_name="churn_predictions_with_interventions.csv",
+        mime="text/csv",
+    )
 
-        st.markdown("---")
-        st.markdown("#### 📋 Original Submission File")
-        orig_cols = ['user_id','invol_churn_prob','not_churned_prob','vol_churn_prob'] \
-                    if 'invol_churn_prob' in df.columns else ['user_id','churn_status']
-        st.download_button(
-            label="⬇️ Download Original Submission CSV",
-            data=df[orig_cols].to_csv(index=False),
-            file_name="submission_original.csv",
-            mime="text/csv",
-        )
+    st.markdown("---")
+    st.markdown("#### 📋 Original Submission File")
+    orig_cols = ['user_id','invol_churn_prob','not_churned_prob','vol_churn_prob'] \
+                if 'invol_churn_prob' in df.columns else ['user_id','churn_status']
+    st.download_button(
+        label="⬇️ Download Original Submission CSV",
+        data=df[orig_cols].to_csv(index=False),
+        file_name="submission_original.csv",
+        mime="text/csv",
+    )
