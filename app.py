@@ -5,7 +5,7 @@ import numpy as np
 st.set_page_config(page_title="Churn Prediction Dashboard", page_icon="📊", layout="wide")
 
 st.title("📊 Churn Prediction & Intervention Dashboard")
-st.markdown("Upload your **submission CSV** (`user_id` + probability columns) to explore predictions, interventions, and business insights.")
+st.markdown("Upload your **submission CSV**  to explore predictions, interventions, and business insights.")
 
 # ─────────────────────────────────────────────
 # CONSTANTS
