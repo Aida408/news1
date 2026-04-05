@@ -84,7 +84,10 @@ if uploaded is None:
 # ─────────────────────────────────────────────
 # LOAD & VALIDATE
 # ─────────────────────────────────────────────
-df = pd.read_csv(uploaded)
+with st.spinner("🔍 Analyzing your submission..."):
+    import time
+    time.sleep(1.5)
+    df = pd.read_csv(uploaded)
 cols = list(df.columns)
 
 has_probs  = all(c in cols for c in ['invol_churn_prob','not_churned_prob','vol_churn_prob'])
